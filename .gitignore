@@ -57,6 +57,7 @@ build/
 # Local demo videos (too large for git; link to external host instead)
 assets/*.mp4
 .tmp
+.omo
 # Local demo / promo production workspace
 demo/
 
