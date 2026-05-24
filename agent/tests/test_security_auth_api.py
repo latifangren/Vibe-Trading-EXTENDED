@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -152,10 +153,34 @@ def test_default_cors_origins_are_loopback_only() -> None:
 
     assert origins
     assert "*" not in origins
-    assert all(
-        origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
-        for origin in origins
-    )
+    assert all(origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:") for origin in origins)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, api_server._DEFAULT_CHROME_EXTENSION_ORIGIN_REGEX),
+        ("", api_server._DEFAULT_CHROME_EXTENSION_ORIGIN_REGEX),
+        ("https://app.example.com", None),
+    ],
+)
+def test_default_cors_origin_regex_only_applies_to_default_mode(raw: str | None, expected: str | None) -> None:
+    assert api_server._default_cors_origin_regex(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("origin", "matches"),
+    [
+        ("chrome-extension://abcdefghijklmnopabcdefghijklmnop", True),
+        ("chrome-extension://dummyextensionid", False),
+        ("moz-extension://abcdefghijklmnopabcdefghijklmnop", False),
+        ("https://example.com", False),
+    ],
+)
+def test_default_chrome_extension_cors_regex_scope(origin: str, matches: bool) -> None:
+    pattern = re.compile(api_server._DEFAULT_CHROME_EXTENSION_ORIGIN_REGEX)
+
+    assert bool(pattern.fullmatch(origin)) is matches
 
 
 def test_cors_origins_reject_credentialed_wildcard() -> None:
@@ -178,9 +203,9 @@ def test_cors_origins_accept_explicit_remote_origins() -> None:
     "value",
     [
         # Real formats produced by the codebase.
-        "20260105_120342_12_a1b2c3",            # state.create_run_dir
-        "swarm-20260105_120342-a1b2c3",         # swarm presets.run_id
-        "abcdef012345",                         # session_id (uuid.uuid4().hex[:12])
+        "20260105_120342_12_a1b2c3",  # state.create_run_dir
+        "swarm-20260105_120342-a1b2c3",  # swarm presets.run_id
+        "abcdef012345",  # session_id (uuid.uuid4().hex[:12])
         "run-1",
         "A" * 128,
     ],
@@ -198,7 +223,7 @@ def test_validate_path_param_accepts_known_good_values(value: str) -> None:
         "foo/bar",
         "foo\\bar",
         "foo bar",
-        "foo.bar",             # dot is not in the safe class
+        "foo.bar",  # dot is not in the safe class
         "foo\n",
         "foo\r",
         "foo\t",

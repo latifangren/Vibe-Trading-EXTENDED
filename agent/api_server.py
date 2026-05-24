@@ -293,6 +293,7 @@ _DEFAULT_CORS_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
 ]
+_DEFAULT_CHROME_EXTENSION_ORIGIN_REGEX = r"^chrome-extension://[a-p]{32}$"
 
 
 def _parse_cors_origins(raw: Optional[str]) -> List[str]:
@@ -319,12 +320,21 @@ def _parse_cors_origins(raw: Optional[str]) -> List[str]:
     return origins
 
 
+def _default_cors_origin_regex(raw: Optional[str]) -> Optional[str]:
+    if raw is None or not raw.strip():
+        return _DEFAULT_CHROME_EXTENSION_ORIGIN_REGEX
+    return None
+
+
 # CORS: override with CORS_ORIGINS (comma-separated explicit origins)
-_CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS"))
+_RAW_CORS_ORIGINS = os.getenv("CORS_ORIGINS")
+_CORS_ORIGINS = _parse_cors_origins(_RAW_CORS_ORIGINS)
+_CORS_ORIGIN_REGEX = _default_cors_origin_regex(_RAW_CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

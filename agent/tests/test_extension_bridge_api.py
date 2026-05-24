@@ -74,12 +74,38 @@ def test_configured_chrome_extension_origin_is_allowed(
             headers={
                 "Origin": CONFIGURED_EXTENSION_ORIGIN,
                 "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
             },
         )
 
         assert response.status_code == 200
         assert response.headers["access-control-allow-origin"] == CONFIGURED_EXTENSION_ORIGIN
         assert response.headers["access-control-allow-credentials"] == "true"
+        assert "content-type" in response.headers["access-control-allow-headers"].lower()
+    finally:
+        _restore_api_server_cors(monkeypatch, original_cors_origins)
+
+
+def test_default_chrome_extension_origin_allows_json_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_cors_origins = os.getenv("CORS_ORIGINS")
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    try:
+        _ = importlib.reload(api_server)
+        response = _test_client_for_current_app().options(
+            "/sessions",
+            headers={
+                "Origin": CONFIGURED_EXTENSION_ORIGIN,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == CONFIGURED_EXTENSION_ORIGIN
+        assert response.headers["access-control-allow-credentials"] == "true"
+        assert "content-type" in response.headers["access-control-allow-headers"].lower()
     finally:
         _restore_api_server_cors(monkeypatch, original_cors_origins)
 
@@ -96,6 +122,7 @@ def test_unconfigured_chrome_extension_origin_is_not_echoed(
             headers={
                 "Origin": UNCONFIGURED_EXTENSION_ORIGIN,
                 "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
             },
         )
 
@@ -177,11 +204,13 @@ def test_sse_session_endpoint_accepts_query_api_key_only_when_correct(
 def test_message_request_accepts_chart_image_attachment() -> None:
     payload = api_server.SendMessageRequest(
         content="Analyze this visible chart",
-        image_attachments=[{
-            "data_url": "data:image/jpeg;base64,QUJD",
-            "mime_type": "image/jpeg",
-            "label": "visible chart",
-        }],
+        image_attachments=[
+            {
+                "data_url": "data:image/jpeg;base64,QUJD",
+                "mime_type": "image/jpeg",
+                "label": "visible chart",
+            }
+        ],
     )
 
     assert payload.image_attachments is not None
