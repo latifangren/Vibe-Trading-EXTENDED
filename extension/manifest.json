@@ -1,4 +1,4 @@
-{
+﻿{
   "manifest_version": 3,
   "name": "Vibe-Trading Sidebar",
   "version": "0.1.0",
@@ -6,8 +6,11 @@
   "action": {
     "default_title": "Open Vibe-Trading Sidebar"
   },
-  "permissions": ["sidePanel", "storage"],
+  "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
   "host_permissions": [
+    "<all_urls>",
+    "http://*/*",
+    "https://*/*",
     "http://127.0.0.1:8899/*",
     "http://localhost:8899/*"
   ],
