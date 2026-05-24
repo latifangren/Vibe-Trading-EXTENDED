@@ -1,4 +1,4 @@
-export const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8899";
+﻿export const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8899";
 
 const BACKEND_BASE_URL_KEY = "vibe_trading_extension_backend_base_url";
 const BACKEND_API_KEY_KEY = "vibe_trading_extension_backend_api_key";
@@ -28,6 +28,12 @@ export interface SessionItem {
   created_at: string;
   updated_at: string;
   last_attempt_id?: string | null;
+}
+
+export interface ImageAttachmentPayload {
+  data_url: string;
+  mime_type?: string;
+  label?: string;
 }
 
 export interface MessageItem {
@@ -210,9 +216,9 @@ export const backendClient = {
     method: "POST",
     body: JSON.stringify({ title }),
   }),
-  sendMessage: (sessionId: string, content: string) => request<{ message_id: string; attempt_id: string }>(
+  sendMessage: (sessionId: string, content: string, imageAttachments?: ImageAttachmentPayload[]) => request<{ message_id: string; attempt_id: string }>(
     `/sessions/${encodeURIComponent(sessionId)}/messages`,
-    { method: "POST", body: JSON.stringify({ content }) },
+    { method: "POST", body: JSON.stringify({ content, image_attachments: imageAttachments }) },
   ),
   getMessages: (sessionId: string) => request<MessageItem[]>(`/sessions/${encodeURIComponent(sessionId)}/messages`),
   cancelSession: (sessionId: string) => request<{ status: string }>(
