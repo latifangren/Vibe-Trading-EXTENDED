@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Vibe-Trading API Server - RESTful API for finance research and backtesting.
 
 V5: ReAct Agent + async /run + CORS env + SSE tool events.
@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Security, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from fastapi.middleware.cors import CORSMiddleware
 from rich.console import Console
 
@@ -31,6 +31,7 @@ from src.ui_services import build_run_analysis, load_run_context
 
 # UTF-8 on Windows
 import sys as _sys
+
 for _s in ("stdout", "stderr"):
     _r = getattr(getattr(_sys, _s, None), "reconfigure", None)
     if callable(_r):
@@ -54,8 +55,10 @@ console = Console()
 # Pydantic Models
 # ============================================================================
 
+
 class Artifact(BaseModel):
     """Artifact file metadata."""
+
     name: str = Field(..., description="File name")
     path: str = Field(..., description="File path")
     type: str = Field(..., description="File type: csv, json, txt, etc.")
@@ -65,6 +68,7 @@ class Artifact(BaseModel):
 
 class BacktestMetrics(BaseModel):
     """Backtest summary metrics."""
+
     model_config = {"extra": "allow"}
 
     final_value: float = Field(..., description="Ending portfolio value")
@@ -76,9 +80,9 @@ class BacktestMetrics(BaseModel):
     trade_count: int = Field(..., description="Number of trades")
 
 
-
 class RAGSelection(BaseModel):
     """RAG routing result."""
+
     selected_api: str = Field(..., description="Selected API code")
     selected_name: str = Field(..., description="Selected API name")
     selected_score: float = Field(..., description="Match score")
@@ -86,6 +90,7 @@ class RAGSelection(BaseModel):
 
 class RunInfo(BaseModel):
     """Compact run row for list views."""
+
     run_id: str
     status: str
     created_at: str
@@ -135,6 +140,7 @@ class RunResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check payload."""
+
     status: str = Field(..., description="Service status")
     service: str = Field(..., description="Service name")
     timestamp: str = Field(..., description="Server timestamp")
@@ -204,16 +210,27 @@ class UpdateDataSourceSettingsRequest(BaseModel):
     clear_tushare_token: bool = False
 
 
+IMAGE_ATTACHMENT_DATA_URL_MAX_LENGTH = 2_500_000
+_ALLOWED_IMAGE_ATTACHMENT_PREFIXES = (
+    "data:image/png;base64,",
+    "data:image/jpeg;base64,",
+    "data:image/webp;base64,",
+)
+
+
 # ---- V4 Session Models ----
+
 
 class CreateSessionRequest(BaseModel):
     """Create session request body."""
+
     title: str = Field("", description="Session title")
     config: Optional[Dict[str, Any]] = Field(None, description="Session config")
 
 
 class SessionResponse(BaseModel):
     """Session record."""
+
     session_id: str
     title: str
     status: str
@@ -222,13 +239,31 @@ class SessionResponse(BaseModel):
     last_attempt_id: Optional[str] = None
 
 
+class ImageAttachmentRequest(BaseModel):
+    """Inline image attachment for multimodal session prompts."""
+
+    data_url: str = Field(..., min_length=1, max_length=IMAGE_ATTACHMENT_DATA_URL_MAX_LENGTH)
+    mime_type: Optional[str] = None
+    label: Optional[str] = Field(None, max_length=120)
+
+    @field_validator("data_url")
+    @classmethod
+    def validate_data_url(cls, value: str) -> str:
+        if not value.startswith(_ALLOWED_IMAGE_ATTACHMENT_PREFIXES):
+            raise ValueError("image attachment must be a png, jpeg, or webp data URL")
+        return value
+
+
 class SendMessageRequest(BaseModel):
     """Send chat message: natural-language strategy description."""
+
     content: str = Field(..., description="Natural language strategy description", min_length=1, max_length=5000)
+    image_attachments: Optional[List[ImageAttachmentRequest]] = Field(default=None, max_length=2)
 
 
 class MessageResponse(BaseModel):
     """Stored chat message."""
+
     message_id: str
     session_id: str
     role: str
@@ -236,7 +271,6 @@ class MessageResponse(BaseModel):
     created_at: str
     linked_attempt_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
-
 
 
 # ============================================================================
@@ -248,7 +282,7 @@ app = FastAPI(
     description="Vibe-Trading API: natural-language finance research, backtesting, and swarm workflows",
     version="5.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 _DEFAULT_CORS_ORIGINS = [
@@ -280,8 +314,7 @@ def _parse_cors_origins(raw: Optional[str]) -> List[str]:
     origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
     if "*" in origins:
         raise RuntimeError(
-            "CORS_ORIGINS='*' is not allowed while credentials are enabled; "
-            "configure explicit Web UI origins instead."
+            "CORS_ORIGINS='*' is not allowed while credentials are enabled; configure explicit Web UI origins instead."
         )
     return origins
 
@@ -312,7 +345,7 @@ app.add_middleware(
 # Patterns are written narrowly so the SPA shell only shadows paths that
 # actually correspond to frontend pages. In particular ``/runs/{id}`` is
 # the RunDetail page, but ``/runs/{id}/code`` and ``/runs/{id}/pine`` are
-# API-only endpoints with no SPA route — using a broad ``/runs/`` prefix
+# API-only endpoints with no SPA route - using a broad ``/runs/`` prefix
 # here would incorrectly hijack those when the browser sets ``Accept:
 # text/html`` (e.g. a user pasting the URL into the address bar).
 
@@ -320,7 +353,7 @@ _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 _SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset({"/correlation"})
 # Each regex matches a complete request path. Trailing slash optional.
 _SPA_HTML_PATH_REGEX: tuple[re.Pattern[str], ...] = (
-    # ``/runs/{run_id}`` — RunDetail page. Excludes ``/runs/{id}/code``,
+    # ``/runs/{run_id}`` - RunDetail page. Excludes ``/runs/{id}/code``,
     # ``/runs/{id}/pine`` (API only) and ``/runs`` (collection endpoint).
     re.compile(r"^/runs/[^/]+/?$"),
 )
@@ -625,7 +658,9 @@ def _project_relative_path(path: Path) -> str:
 def _format_env_value(value: str) -> str:
     """Format a dotenv value without allowing multiline injection."""
     if "\n" in value or "\r" in value:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Environment values cannot contain newlines")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Environment values cannot contain newlines"
+        )
     value = value.strip()
     if not value:
         return ""
@@ -803,7 +838,6 @@ def _load_csv_to_dict(path: Path, limit: Optional[int] = None) -> List[Dict[str,
         return []
 
 
-
 def _build_response_from_run_dir(run_dir: Path, elapsed: float, *, include_analysis: bool = False) -> RunResponse:
     """Build a run response from a persisted run directory."""
     run_id = run_dir.name
@@ -862,7 +896,6 @@ def _build_response_from_run_dir(run_dir: Path, elapsed: float, *, include_analy
                     response.metrics = BacktestMetrics(**parsed)
             except (ValueError, TypeError):
                 pass
-
 
     artifacts_dir = run_dir / "artifacts"
     if artifacts_dir.exists():
@@ -962,6 +995,7 @@ def _validate_path_param(value: str, kind: str) -> None:
 # API Endpoints
 # ============================================================================
 
+
 @app.get("/runs/{run_id}/code", dependencies=[Depends(require_auth)])
 async def get_run_code(run_id: str):
     """Return strategy source files for a run.
@@ -1011,10 +1045,7 @@ async def get_run_result(run_id: str):
     run_dir = RUNS_DIR / run_id
 
     if not run_dir.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id} not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run {run_id} not found")
 
     response = _build_response_from_run_dir(run_dir, elapsed=0.0, include_analysis=True)
 
@@ -1026,20 +1057,16 @@ async def list_runs(limit: int = 20):
     """List recent runs with summary fields."""
     limit = min(max(1, limit), 100)
     runs_dir = RUNS_DIR
-    
+
     if not runs_dir.exists():
         return []
-    
-    run_dirs = sorted(
-        [d for d in runs_dir.iterdir() if d.is_dir()],
-        key=lambda x: x.name,
-        reverse=True
-    )
-    
+
+    run_dirs = sorted([d for d in runs_dir.iterdir() if d.is_dir()], key=lambda x: x.name, reverse=True)
+
     results = []
     for d in run_dirs[:limit]:
         run_id = d.name
-        
+
         # Status from state.json or artifacts
         status_val = "unknown"
         state_file = _load_json_file(d / "state.json")
@@ -1049,26 +1076,26 @@ async def list_runs(limit: int = 20):
             status_val = "success"
         elif (d / "review_report.json").exists():
             status_val = "success"
-        
+
         # Parse created_at from run_id (YYYYMMDD_HHMMSS or run_YYYYMMDD_HHMMSS)
         created_at = "Unknown"
         if run_id.startswith("run_"):
-            parts = run_id.split('_')
+            parts = run_id.split("_")
             if len(parts) >= 3:
                 d_str, t_str = parts[1], parts[2]
                 if len(d_str) == 8 and len(t_str) == 6:
                     created_at = f"{d_str[:4]}-{d_str[4:6]}-{d_str[6:8]} {t_str[:2]}:{t_str[2:4]}:{t_str[4:6]}"
         elif "_" in run_id:
-            parts = run_id.split('_')
+            parts = run_id.split("_")
             if len(parts) >= 2:
                 d_str, t_str = parts[0], parts[1]
                 if len(d_str) == 8 and len(t_str) == 6:
                     created_at = f"{d_str[:4]}-{d_str[4:6]}-{d_str[6:8]} {t_str[:2]}:{t_str[2:4]}:{t_str[4:6]}"
-        
+
         if created_at == "Unknown":
             mtime = datetime.fromtimestamp(d.stat().st_mtime)
             created_at = mtime.strftime("%Y-%m-%d %H:%M:%S")
-        
+
         prompt = None
         req_file = d / "req.json"
         planner_file = d / "planner_output.json"
@@ -1085,40 +1112,43 @@ async def list_runs(limit: int = 20):
                 prompt = planner_data.get("user_goal") or planner_data.get("goal")
             except (json.JSONDecodeError, OSError):
                 pass
-            
+
         if not prompt:
             prompt_file = d / "user_prompt.txt"
             if prompt_file.exists():
                 prompt = prompt_file.read_text(encoding="utf-8").strip()
-        
+
         total_return = None
         sharpe = None
         metrics_file = d / "artifacts" / "metrics.csv"
         if metrics_file.exists():
             try:
                 import csv
-                with open(metrics_file, 'r', encoding='utf-8') as f:
+
+                with open(metrics_file, "r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        total_return = float(row.get('total_return', 0) or 0)
-                        sharpe = float(row.get('sharpe', 0) or 0)
+                        total_return = float(row.get("total_return", 0) or 0)
+                        sharpe = float(row.get("sharpe", 0) or 0)
                         break
             except (OSError, ValueError):
                 pass
-        
+
         run_context = load_run_context(d)
-        results.append(RunInfo(
-            run_id=run_id,
-            status=status_val,
-            created_at=created_at,
-            prompt=prompt or "Manual Analysis",
-            total_return=total_return,
-            sharpe=sharpe,
-            codes=run_context.get("codes") or [],
-            start_date=run_context.get("start_date"),
-            end_date=run_context.get("end_date"),
-        ))
-        
+        results.append(
+            RunInfo(
+                run_id=run_id,
+                status=status_val,
+                created_at=created_at,
+                prompt=prompt or "Manual Analysis",
+                total_return=total_return,
+                sharpe=sharpe,
+                codes=run_context.get("codes") or [],
+                start_date=run_context.get("start_date"),
+                end_date=run_context.get("end_date"),
+            )
+        )
+
     return results
 
 
@@ -1149,7 +1179,9 @@ async def update_llm_settings(payload: UpdateLLMSettingsRequest):
 
     reasoning_effort = (payload.reasoning_effort or "").strip().lower()
     if reasoning_effort not in LLM_REASONING_EFFORTS:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reasoning effort must be low, medium, high, or max")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Reasoning effort must be low, medium, high, or max"
+        )
 
     current_values = _read_settings_env_values()
     base_url = (payload.base_url if payload.base_url is not None else provider.default_base_url).strip()
@@ -1231,11 +1263,7 @@ async def update_data_source_settings(payload: UpdateDataSourceSettingsRequest):
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Liveness probe."""
-    return HealthResponse(
-        status="healthy",
-        service="Vibe-Trading API",
-        timestamp=datetime.now().isoformat()
-    )
+    return HealthResponse(status="healthy", service="Vibe-Trading API", timestamp=datetime.now().isoformat())
 
 
 @app.get("/correlation")
@@ -1353,7 +1381,12 @@ def _get_session_service():
     return _session_service
 
 
-@app.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_auth)])
+@app.post(
+    "/sessions",
+    response_model=SessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_auth)],
+)
 async def create_session(request: CreateSessionRequest):
     """Create a chat session."""
     svc = _get_session_service()
@@ -1425,6 +1458,7 @@ async def delete_session(session_id: str):
 
 class UpdateSessionRequest(BaseModel):
     """Session update fields."""
+
     title: Optional[str] = None
 
 
@@ -1441,6 +1475,7 @@ async def update_session(session_id: str, req: UpdateSessionRequest):
     if req.title is not None:
         session.title = req.title
     from datetime import datetime
+
     session.updated_at = datetime.now().isoformat()
     svc.store.update_session(session)
     return {"status": "updated", "session_id": session_id}
@@ -1458,6 +1493,7 @@ async def send_message(session_id: str, payload: SendMessageRequest, http_reques
             session_id=session_id,
             content=payload.content,
             include_shell_tools=_shell_tools_enabled_for_request(http_request),
+            image_attachments=[attachment.model_dump() for attachment in payload.image_attachments or []] or None,
         )
         return result
     except ValueError as exc:
@@ -1540,13 +1576,40 @@ async def session_events(
 
 _BLOCKED_UPLOAD_EXT = {
     # binaries / executables we should never accept
-    ".exe", ".msi", ".bat", ".cmd", ".com", ".scr", ".app", ".dmg",
-    ".so", ".dll", ".dylib",
+    ".exe",
+    ".msi",
+    ".bat",
+    ".cmd",
+    ".com",
+    ".scr",
+    ".app",
+    ".dmg",
+    ".so",
+    ".dll",
+    ".dylib",
     # executable-adjacent source, shell, config, and template files
-    ".py", ".pyw", ".sh", ".bash", ".zsh", ".fish", ".ps1",
-    ".yaml", ".yml", ".j2", ".jinja", ".jinja2", ".template",
-    # archives — don't auto-extract; user can unpack locally
-    ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz",
+    ".py",
+    ".pyw",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".yaml",
+    ".yml",
+    ".j2",
+    ".jinja",
+    ".jinja2",
+    ".template",
+    # archives - don't auto-extract; user can unpack locally
+    ".zip",
+    ".rar",
+    ".7z",
+    ".tar",
+    ".gz",
+    ".tgz",
+    ".bz2",
+    ".xz",
 }
 
 _BLOCKED_UPLOAD_NAMES = {
@@ -1653,6 +1716,7 @@ def _get_swarm_runtime():
         return _swarm_runtime
     from src.swarm.store import SwarmStore
     from src.swarm.runtime import SwarmRuntime
+
     swarm_dir = Path(__file__).resolve().parent / ".swarm" / "runs"
     store = SwarmStore(base_dir=swarm_dir)
     _swarm_runtime = SwarmRuntime(store=store)
@@ -1663,6 +1727,7 @@ def _get_swarm_runtime():
 async def list_swarm_presets():
     """List Swarm YAML presets."""
     from src.swarm.presets import list_presets
+
     return list_presets()
 
 
@@ -1755,11 +1820,11 @@ async def swarm_run_events(run_id: str, request: Request, last_index: int = Quer
             run = runtime._store.load_run(run_id)
             if run:
                 # Reconcile so a zombie running run can still close this SSE
-                # stream cleanly — without it, a dead host would keep the
+                # stream cleanly - without it, a dead host would keep the
                 # stream open forever and block the dashboard's "done" state.
                 reconciled = runtime._store.reconcile_run(run, write=True)
                 if reconciled.status.value in ("completed", "failed", "cancelled"):
-                    yield f"event: done\ndata: {{\"status\": \"{reconciled.status.value}\"}}\n\n"
+                    yield f'event: done\ndata: {{"status": "{reconciled.status.value}"}}\n\n'
                     break
             await asyncio.sleep(2)
 
@@ -1778,16 +1843,18 @@ async def cancel_swarm_run(run_id: str):
 
 
 # ============================================================================
-# Alpha Zoo routes (Web UI) — defined in src/api/alpha_routes.py
+# Alpha Zoo routes (Web UI) - defined in src/api/alpha_routes.py
 # ============================================================================
 
 from src.api.alpha_routes import register_alpha_routes  # noqa: E402
+
 register_alpha_routes(app)
 
 
 # ============================================================================
 # Main Entry Point
 # ============================================================================
+
 
 def serve_main(argv: list[str] | None = None) -> int:
     """Start the API server from CLI-style arguments."""

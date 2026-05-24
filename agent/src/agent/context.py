@@ -1,4 +1,4 @@
-"""ContextBuilder: builds LLM message context for the ReAct AgentLoop."""
+﻿"""ContextBuilder: builds LLM message context for the ReAct AgentLoop."""
 
 from __future__ import annotations
 
@@ -99,9 +99,13 @@ class ContextBuilder:
         skills_loader: Skills loader.
     """
 
-    def __init__(self, registry: ToolRegistry, memory: WorkspaceMemory,
-                 skills_loader: Optional[SkillsLoader] = None,
-                 persistent_memory: Optional[PersistentMemory] = None) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        memory: WorkspaceMemory,
+        skills_loader: Optional[SkillsLoader] = None,
+        persistent_memory: Optional[PersistentMemory] = None,
+    ) -> None:
         """Initialize ContextBuilder.
 
         Args:
@@ -146,7 +150,12 @@ class ContextBuilder:
             current_datetime=now.strftime("%A, %B %d, %Y %H:%M (local)"),
         )
 
-    def build_messages(self, user_message: str, history: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    def build_messages(
+        self,
+        user_message: str,
+        history: Optional[List[Dict[str, Any]]] = None,
+        image_attachments: Optional[List[Dict[str, str]]] = None,
+    ) -> List[Dict[str, Any]]:
         """Build full message list.
 
         Auto-recalls relevant persistent memories and injects them into the
@@ -174,14 +183,19 @@ class ContextBuilder:
                 if recalls:
                     lines = [f"- **{r.title}** ({r.memory_type}): {r.body[:500]}" for r in recalls]
                     recall_block = "\n".join(lines)
-                    enriched = (
-                        f"<recalled-memories>\n{recall_block}\n</recalled-memories>\n\n"
-                        f"{user_message}"
-                    )
+                    enriched = f"<recalled-memories>\n{recall_block}\n</recalled-memories>\n\n{user_message}"
             except Exception as exc:
                 logger.debug("Auto-recall failed: %s", exc)
 
-        messages.append({"role": "user", "content": enriched})
+        if image_attachments:
+            content_parts: list[dict[str, Any]] = [{"type": "text", "text": enriched}]
+            for attachment in image_attachments:
+                data_url = attachment.get("data_url", "")
+                if data_url:
+                    content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            messages.append({"role": "user", "content": content_parts})
+        else:
+            messages.append({"role": "user", "content": enriched})
         return messages
 
     def _format_tool_descriptions(self) -> str:

@@ -172,3 +172,25 @@ def test_sse_session_endpoint_accepts_query_api_key_only_when_correct(
     assert wrong.status_code == 401
     assert correct.status_code == 501
     assert correct.json()["detail"] == "Session runtime not enabled"
+
+
+def test_message_request_accepts_chart_image_attachment() -> None:
+    payload = api_server.SendMessageRequest(
+        content="Analyze this visible chart",
+        image_attachments=[{
+            "data_url": "data:image/jpeg;base64,QUJD",
+            "mime_type": "image/jpeg",
+            "label": "visible chart",
+        }],
+    )
+
+    assert payload.image_attachments is not None
+    assert payload.image_attachments[0].data_url.startswith("data:image/jpeg;base64,")
+
+
+def test_message_request_rejects_non_image_data_attachment() -> None:
+    with pytest.raises(Exception):
+        api_server.SendMessageRequest(
+            content="bad image",
+            image_attachments=[{"data_url": "data:text/plain;base64,QUJD"}],
+        )

@@ -1,4 +1,4 @@
-"""AgentLoop: ReAct core loop.
+﻿"""AgentLoop: ReAct core loop.
 
 Five-layer context management:
   Layer 1 (microcompact)     — silently prunes old tool results each iteration
@@ -310,7 +310,13 @@ class AgentLoop:
         """
         self._cancelled = True
 
-    def run(self, user_message: str, history: Optional[List[Dict[str, Any]]] = None, session_id: str = "") -> Dict[str, Any]:
+    def run(
+        self,
+        user_message: str,
+        history: Optional[List[Dict[str, Any]]] = None,
+        session_id: str = "",
+        image_attachments: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """Run the ReAct loop synchronously.
 
         Args:
@@ -337,9 +343,8 @@ class AgentLoop:
 
         state_store.save_request(run_dir, user_message, {"session_id": session_id})
 
-        context = ContextBuilder(self.registry, self.memory,
-                                  persistent_memory=self._persistent_memory)
-        messages = context.build_messages(user_message, history)
+        context = ContextBuilder(self.registry, self.memory, persistent_memory=self._persistent_memory)
+        messages = context.build_messages(user_message, history, image_attachments=image_attachments)
         react_trace: List[Dict[str, Any]] = []
 
         trace = TraceWriter(run_dir)
@@ -362,7 +367,9 @@ class AgentLoop:
                 notifs = bg.drain_notifications()
                 if notifs:
                     notif_text = "\n".join(f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs)
-                    messages.append({"role": "user", "content": f"<background-results>\n{notif_text}\n</background-results>"})
+                    messages.append(
+                        {"role": "user", "content": f"<background-results>\n{notif_text}\n</background-results>"}
+                    )
                     messages.append({"role": "assistant", "content": "Noted background results."})
 
                 # Layer 1: microcompact (every iteration)
@@ -415,7 +422,12 @@ class AgentLoop:
 
                 # Execute tools with read/write batching
                 compact_requested, focus_topic = self._process_tool_calls(
-                    response.tool_calls, context, messages, trace, react_trace, iteration,
+                    response.tool_calls,
+                    context,
+                    messages,
+                    trace,
+                    react_trace,
+                    iteration,
                 )
 
                 # Layer 3: compress after all tools have executed
@@ -449,9 +461,7 @@ class AgentLoop:
             state_store.mark_success(run_dir)
             final_status = "success"
         else:
-            final_reason = (
-                f"reached max iterations ({self.max_iterations}) without final answer"
-            )
+            final_reason = f"reached max iterations ({self.max_iterations}) without final answer"
             state_store.mark_failure(run_dir, final_reason)
             final_status = "failed"
 
@@ -511,7 +521,9 @@ class AgentLoop:
             if tc.name == "compact":
                 compact_requested = True
                 focus_topic = tc.arguments.get("focus_topic", "")
-                messages.append(context.format_tool_result(tc.id, "compact", '{"status":"ok","message":"Compressing..."}'))
+                messages.append(
+                    context.format_tool_result(tc.id, "compact", '{"status":"ok","message":"Compressing..."}')
+                )
                 trace.write({"type": "compact_requested", "iter": iteration})
                 continue
 
@@ -519,7 +531,9 @@ class AgentLoop:
             is_repeatable = tool_def.repeatable if tool_def else False
             if tc.name in self._called_ok and not is_repeatable:
                 logger.warning(f"Blocked duplicate call: {tc.name} (already succeeded)")
-                skip_msg = json.dumps({"skipped": True, "reason": f"{tc.name} already completed successfully. Use the previous result."})
+                skip_msg = json.dumps(
+                    {"skipped": True, "reason": f"{tc.name} already completed successfully. Use the previous result."}
+                )
                 messages.append(context.format_tool_result(tc.id, tc.name, skip_msg))
                 trace.write({"type": "tool_skipped", "iter": iteration, "tool": tc.name})
                 react_trace.append({"type": "tool_skipped", "tool": tc.name})
@@ -606,8 +620,18 @@ class AgentLoop:
         runnable: list[tuple] = []
         for tc in tool_calls:
             args = _normalize_tool_run_dir(tc.arguments, self.memory.run_dir)
-            self._emit("tool_call", {"tool": tc.name, "arguments": {k: str(v)[:200] for k, v in args.items()}, "iter": iteration})
-            trace.write({"type": "tool_call", "iter": iteration, "tool": tc.name, "args": {k: str(v)[:200] for k, v in args.items()}})
+            self._emit(
+                "tool_call",
+                {"tool": tc.name, "arguments": {k: str(v)[:200] for k, v in args.items()}, "iter": iteration},
+            )
+            trace.write(
+                {
+                    "type": "tool_call",
+                    "iter": iteration,
+                    "tool": tc.name,
+                    "args": {k: str(v)[:200] for k, v in args.items()},
+                }
+            )
             runnable.append((tc, args))
 
         # Execute in parallel — each worker gets its own heartbeat + progress emitter.
@@ -651,8 +675,17 @@ class AgentLoop:
         """
         args = _normalize_tool_run_dir(tc.arguments, self.memory.run_dir)
 
-        self._emit("tool_call", {"tool": tc.name, "arguments": {k: str(v)[:200] for k, v in args.items()}, "iter": iteration})
-        trace.write({"type": "tool_call", "iter": iteration, "tool": tc.name, "args": {k: str(v)[:200] for k, v in args.items()}})
+        self._emit(
+            "tool_call", {"tool": tc.name, "arguments": {k: str(v)[:200] for k, v in args.items()}, "iter": iteration}
+        )
+        trace.write(
+            {
+                "type": "tool_call",
+                "iter": iteration,
+                "tool": tc.name,
+                "args": {k: str(v)[:200] for k, v in args.items()},
+            }
+        )
         logger.info(f"Tool call: {tc.name}({list(args.keys())})")
 
         result, elapsed_ms = self._invoke_tool(tc.name, args)
@@ -676,6 +709,7 @@ class AgentLoop:
         Returns:
             Tuple of (result_str, elapsed_ms).
         """
+
         def _on_progress(event: ProgressEvent) -> None:
             payload = event.to_dict()
             payload["tool"] = tool_name
@@ -731,14 +765,24 @@ class AgentLoop:
         truncated = result[:TOOL_RESULT_LIMIT]
         messages.append(context.format_tool_result(tc.id, tc.name, truncated))
 
-        trace.write({"type": "tool_result", "iter": iteration, "tool": tc.name, "status": status, "elapsed_ms": elapsed_ms, "preview": result[:200]})
+        trace.write(
+            {
+                "type": "tool_result",
+                "iter": iteration,
+                "tool": tc.name,
+                "status": status,
+                "elapsed_ms": elapsed_ms,
+                "preview": result[:200],
+            }
+        )
         react_trace.append({"type": "tool_call", "tool": tc.name, "result_preview": result[:200]})
-        self._emit("tool_result", {"tool": tc.name, "status": status, "elapsed_ms": elapsed_ms, "preview": result[:200]})
+        self._emit(
+            "tool_result", {"tool": tc.name, "status": status, "elapsed_ms": elapsed_ms, "preview": result[:200]}
+        )
 
     # -- Context compression ---------------------------------------------------
 
-    def _auto_compact(self, messages: list, run_dir: Path, trace: TraceWriter,
-                      focus_topic: str = "") -> None:
+    def _auto_compact(self, messages: list, run_dir: Path, trace: TraceWriter, focus_topic: str = "") -> None:
         """Layer 3/4/5: structured LLM summary with token-budget tail protection.
 
         Upgrades over the original:
@@ -812,8 +856,14 @@ class AgentLoop:
         self._previous_summary = summary
 
         tokens_before = estimate_tokens(messages)
-        trace.write({"type": "compact", "tokens_before": tokens_before, "summary": summary[:500],
-                      "focus_topic": focus_topic or "(none)"})
+        trace.write(
+            {
+                "type": "compact",
+                "tokens_before": tokens_before,
+                "summary": summary[:500],
+                "focus_topic": focus_topic or "(none)",
+            }
+        )
         self._emit("compact", {"tokens_before": tokens_before, "summary": summary[:200]})
 
         # Reconstruct: system + summary + acknowledge + preserved tail

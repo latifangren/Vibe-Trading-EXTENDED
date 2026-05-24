@@ -1,4 +1,4 @@
-"""Session lifecycle orchestration for message flow, attempt creation, and execution scheduling.
+﻿"""Session lifecycle orchestration for message flow, attempt creation, and execution scheduling.
 
 V5: Uses AgentLoop instead of the fixed pipeline behind the generate skill.
 """
@@ -9,7 +9,7 @@ import asyncio
 import concurrent.futures
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 # Dedicated thread pool limited to four concurrent agents to avoid exhausting the default executor.
 _AGENT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent")
@@ -89,6 +89,7 @@ class SessionService:
         role: str = "user",
         *,
         include_shell_tools: bool = False,
+        image_attachments: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Send a message to a session and trigger execution.
 
@@ -108,7 +109,9 @@ class SessionService:
         message = Message(session_id=session_id, role=role, content=content)
         self.store.append_message(message)
         self._search_index.index_message(session_id, role, content)
-        self.event_bus.emit(session_id, "message.received", {"message_id": message.message_id, "role": role, "content": content})
+        self.event_bus.emit(
+            session_id, "message.received", {"message_id": message.message_id, "role": role, "content": content}
+        )
 
         if role != "user":
             return {"message_id": message.message_id}
@@ -121,7 +124,11 @@ class SessionService:
         self.store.update_session(session)
         self.event_bus.emit(session_id, "attempt.created", {"attempt_id": attempt.attempt_id, "prompt": content})
 
-        asyncio.create_task(self._run_attempt(session, attempt, include_shell_tools=include_shell_tools))
+        asyncio.create_task(
+            self._run_attempt(
+                session, attempt, include_shell_tools=include_shell_tools, image_attachments=image_attachments
+            )
+        )
         return {"message_id": message.message_id, "attempt_id": attempt.attempt_id}
 
     def get_messages(self, session_id: str, limit: int = 100) -> list[Message]:
@@ -143,7 +150,14 @@ class SessionService:
         loop.cancel()
         return True
 
-    async def _run_attempt(self, session: Session, attempt: Attempt, *, include_shell_tools: bool = False) -> None:
+    async def _run_attempt(
+        self,
+        session: Session,
+        attempt: Attempt,
+        *,
+        include_shell_tools: bool = False,
+        image_attachments: Optional[List[Dict[str, str]]] = None,
+    ) -> None:
         """Execute an Attempt in the background."""
         attempt.mark_running()
         self.store.update_attempt(attempt)
@@ -156,6 +170,7 @@ class SessionService:
                 messages=messages,
                 include_shell_tools=include_shell_tools,
                 session_config=dict(session.config),
+                image_attachments=image_attachments,
             )
             if result.get("status") == "success":
                 attempt.mark_completed(summary=result.get("content", ""))
@@ -172,7 +187,8 @@ class SessionService:
                 reply_metadata["metrics"] = attempt.metrics
 
             reply = Message(
-                session_id=session.session_id, role="assistant",
+                session_id=session.session_id,
+                role="assistant",
                 content=self._format_result_message(attempt),
                 linked_attempt_id=attempt.attempt_id,
                 metadata=reply_metadata,
@@ -182,14 +198,21 @@ class SessionService:
             self.event_bus.emit(
                 session.session_id,
                 "attempt.completed" if attempt.status == AttemptStatus.COMPLETED else "attempt.failed",
-                {"attempt_id": attempt.attempt_id, "status": attempt.status.value,
-                 "summary": attempt.summary, "error": attempt.error, "run_dir": attempt.run_dir},
+                {
+                    "attempt_id": attempt.attempt_id,
+                    "status": attempt.status.value,
+                    "summary": attempt.summary,
+                    "error": attempt.error,
+                    "run_dir": attempt.run_dir,
+                },
             )
 
         except Exception as exc:
             attempt.mark_failed(error=str(exc))
             self.store.update_attempt(attempt)
-            self.event_bus.emit(session.session_id, "attempt.failed", {"attempt_id": attempt.attempt_id, "error": str(exc)})
+            self.event_bus.emit(
+                session.session_id, "attempt.failed", {"attempt_id": attempt.attempt_id, "error": str(exc)}
+            )
 
     async def _run_with_agent(
         self,
@@ -198,6 +221,7 @@ class SessionService:
         *,
         include_shell_tools: bool = False,
         session_config: Optional[Dict[str, Any]] = None,
+        image_attachments: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Execute an attempt with the V5 AgentLoop.
 
@@ -267,6 +291,7 @@ class SessionService:
                     user_message=attempt.prompt,
                     history=history,
                     session_id=session_id,
+                    image_attachments=image_attachments,
                 ),
             )
         finally:
@@ -329,6 +354,7 @@ class SessionService:
     def _load_metrics(run_dir: Path) -> Optional[Dict[str, Any]]:
         """Load metrics.csv from a run directory."""
         import csv
+
         metrics_path = run_dir / "artifacts" / "metrics.csv"
         if not metrics_path.exists():
             return None
