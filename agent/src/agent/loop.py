@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time as _time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -49,7 +50,7 @@ TAIL_TOKEN_BUDGET = 20_000
 logger = logging.getLogger(__name__)
 
 
-def estimate_tokens(messages: list) -> int:
+def estimate_tokens(messages: Sequence[Mapping[str, object]]) -> int:
     """Rough token count estimate (~4 chars/token).
 
     Args:
@@ -58,7 +59,26 @@ def estimate_tokens(messages: list) -> int:
     Returns:
         Estimated token count.
     """
-    return len(json.dumps(messages, default=str, ensure_ascii=False)) // 4
+    return sum(_estimate_message_tokens(message) for message in messages)
+
+
+def _estimate_message_tokens(message: Mapping[str, object]) -> int:
+    role_tokens = len(str(message.get("role", ""))) // 4
+    content = message.get("content", "")
+    overhead_tokens = 20
+    if isinstance(content, list):
+        return role_tokens + overhead_tokens + sum(_estimate_content_part_tokens(part) for part in content)
+    return role_tokens + overhead_tokens + len(json.dumps(content, default=str, ensure_ascii=False)) // 4
+
+
+def _estimate_content_part_tokens(part: object) -> int:
+    if not isinstance(part, Mapping):
+        return len(json.dumps(part, default=str, ensure_ascii=False)) // 4
+    if part.get("type") == "text":
+        return len(str(part.get("text", ""))) // 4 + 10
+    if part.get("type") == "image_url":
+        return 1_000
+    return len(json.dumps(part, default=str, ensure_ascii=False)) // 4
 
 
 def _microcompact(messages: list) -> None:
@@ -811,8 +831,7 @@ class AgentLoop:
         accumulated = 0
         cut_idx = len(body)
         for i in range(len(body) - 1, -1, -1):
-            content = body[i].get("content", "")
-            msg_tokens = (len(str(content)) // 4) + 10
+            msg_tokens = _estimate_message_tokens(body[i])
             if accumulated + msg_tokens > TAIL_TOKEN_BUDGET:
                 cut_idx = i + 1
                 break
