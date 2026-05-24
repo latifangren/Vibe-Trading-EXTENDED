@@ -58,6 +58,7 @@ build/
 assets/*.mp4
 .tmp
 .omo
+.opencode
 # Local demo / promo production workspace
 demo/
 
