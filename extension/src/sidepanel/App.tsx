@@ -2,6 +2,7 @@
 import {
   DEFAULT_BACKEND_BASE_URL,
   ERROR_MESSAGES,
+  BackendClientError,
   backendClient,
   getBackendSettings,
   saveBackendSettings,
@@ -9,22 +10,22 @@ import {
   type BackendSettings,
   type ImageAttachmentPayload,
   type MessageItem,
+  type SessionItem,
 } from "@/lib/backendClient";
 import {
   DEFAULT_TAB_PERMISSION_STATE,
-  captureCurrentTabContext,
   getCurrentTabPermissionState,
-  formatTabContextPrompt,
   tabContextLabel,
   toTabContextWarning,
   type TabContext,
-  type TabPermissionState,
 } from "@/lib/tabContext";
+import { isChartLikePage } from "@/lib/chartVision";
 import {
-  captureVisibleChartScreenshot,
-  chartScreenshotLabel,
-  type ChartScreenshot,
-} from "@/lib/chartVision";
+  clearActiveSidepanelSessionId,
+  getActiveSidepanelSessionId,
+  saveActiveSidepanelSessionId,
+} from "@/lib/sessionContinuity";
+import { prepareOutboundMessage } from "@/sidepanel/sendPreparation";
 
 type BackendStatus = "checking" | "connected" | "unavailable";
 type ChatRole = "user" | "assistant" | "error";
@@ -84,16 +85,10 @@ function stripTabContextPrompt(content: string): string {
 export async function sendMessageWithChartScreenshot(
   sessionId: string,
   content: string,
-  screenshot: ChartScreenshot | null,
+  imageAttachments: ImageAttachmentPayload[] | undefined,
   sendMessage: (sessionId: string, content: string, imageAttachments?: ImageAttachmentPayload[]) => Promise<unknown>,
-  clearScreenshot: () => void,
 ): Promise<void> {
-  const attachments = screenshot
-    ? [{ data_url: screenshot.dataUrl, mime_type: screenshot.mimeType, label: screenshot.label }]
-    : undefined;
-
-  await sendMessage(sessionId, content, attachments);
-  if (screenshot) clearScreenshot();
+  await sendMessage(sessionId, content, imageAttachments);
 }
 
 export default function App() {
@@ -105,6 +100,7 @@ export default function App() {
   const [baseUrlField, setBaseUrlField] = useState(DEFAULT_BACKEND_BASE_URL);
   const [backendApiKeyField, setBackendApiKeyField] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<SessionItem[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streamingText, setStreamingText] = useState("");
@@ -112,12 +108,10 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const [tabContextEnabled, setTabContextEnabled] = useState(false);
   const [tabContext, setTabContext] = useState<TabContext | null>(null);
   const [tabContextWarning, setTabContextWarning] = useState("");
-  const [tabPermissionState, setTabPermissionState] = useState<TabPermissionState>(DEFAULT_TAB_PERMISSION_STATE);
+  const [, setTabPermissionState] = useState(DEFAULT_TAB_PERMISSION_STATE);
   const [isCapturingTabContext, setIsCapturingTabContext] = useState(false);
-  const [chartScreenshot, setChartScreenshot] = useState<ChartScreenshot | null>(null);
   const [chartScreenshotWarning, setChartScreenshotWarning] = useState("");
   const [isCapturingChartScreenshot, setIsCapturingChartScreenshot] = useState(false);
 
@@ -145,15 +139,38 @@ export default function App() {
     }
   }, []);
 
+  const restoreStoredSession = useCallback(async () => {
+    const storedSessionId = await getActiveSidepanelSessionId();
+    if (!storedSessionId) return;
+
+    try {
+      const storedMessages = await backendClient.getMessages(storedSessionId);
+      setSessionId(storedSessionId);
+      sessionIdRef.current = storedSessionId;
+      setMessages(fromBackendMessages(storedMessages));
+      setBackendStatus("connected");
+    } catch (error) {
+      if (error instanceof BackendClientError && error.status === 404) {
+        await clearActiveSidepanelSessionId();
+        setSessionId(null);
+        sessionIdRef.current = null;
+        setMessages([]);
+      }
+    }
+  }, []);
+
   const refreshBackendStatus = useCallback(async () => {
     setBackendStatus("checking");
     try {
-      await backendClient.checkBackend();
+      const sessions = await backendClient.checkBackend();
+      setRecentSessions(sessions.slice(0, 8));
       setBackendStatus("connected");
       setErrorMessage("");
+      return true;
     } catch (error) {
       setBackendStatus("unavailable");
       setErrorMessage(toUiErrorMessage(error, settingsRef.current.baseUrl));
+      return false;
     }
   }, []);
 
@@ -165,13 +182,15 @@ export default function App() {
       settingsRef.current = storedSettings;
       setBaseUrlField(storedSettings.baseUrl);
       setBackendApiKeyField(storedSettings.backendApiKey);
-      void refreshBackendStatus();
+      void refreshBackendStatus().then((isConnected) => {
+        if (isConnected) void restoreStoredSession();
+      });
     });
     return () => {
       alive = false;
       closeEvents();
     };
-  }, [closeEvents, refreshBackendStatus]);
+  }, [closeEvents, refreshBackendStatus, restoreStoredSession]);
 
   useEffect(() => {
     let alive = true;
@@ -264,64 +283,47 @@ export default function App() {
     void refreshBackendStatus();
   };
 
-  const refreshTabContext = useCallback(async (preferredMode = tabPermissionState.preferredMode): Promise<TabContext | null> => {
-    setIsCapturingTabContext(true);
+  const handleNewChat = async () => {
+    await clearActiveSidepanelSessionId();
+    closeEvents();
+    setSessionId(null);
+    sessionIdRef.current = null;
+    setMessages([]);
+    setInput("");
+    setStreamingText("");
+    streamBufferRef.current = "";
+    setErrorMessage("");
+    setTabContext(null);
     setTabContextWarning("");
-    try {
-      const nextContext = await captureCurrentTabContext(preferredMode);
-      setTabContext(nextContext);
-      const nextState = await getCurrentTabPermissionState();
-      setTabPermissionState(nextState);
-      return nextContext;
-    } catch (error) {
-      setTabContext(null);
-      if (error instanceof Error && "state" in error) {
-        const state = (error as { state?: TabPermissionState }).state;
-        if (state) setTabPermissionState(state);
-      }
-      setTabContextWarning(toTabContextWarning(error));
-      return null;
-    } finally {
-      setIsCapturingTabContext(false);
-    }
-  }, [tabPermissionState.preferredMode]);
-
-  const refreshTabPermissionState = useCallback(async () => {
-    try {
-      const state = await getCurrentTabPermissionState();
-      setTabPermissionState(state);
-      return state;
-    } catch (error) {
-      setTabContextWarning(toTabContextWarning(error));
-      return DEFAULT_TAB_PERMISSION_STATE;
-    }
-  }, []);
-
-  const handleTabContextToggle = async (checked: boolean) => {
-    setTabContextEnabled(checked);
-    setTabContextWarning("");
-    if (checked) {
-      await refreshTabPermissionState();
-      await refreshTabContext();
-    } else {
-      setTabContext(null);
-    }
-  };
-
-
-  const handleCaptureChartScreenshot = async () => {
-    if (isCapturingChartScreenshot || isSending || isStreaming) return;
-    setIsCapturingChartScreenshot(true);
     setChartScreenshotWarning("");
+    setIsSending(false);
+    setIsStreaming(false);
+  };
+
+  const handleSessionSelect = async (nextSessionId: string) => {
+    if (!nextSessionId || nextSessionId === sessionId || isSending || isStreaming) return;
+    closeEvents();
+    streamBufferRef.current = "";
+    setStreamingText("");
+    setErrorMessage("");
+    setInput("");
+    setTabContext(null);
+    setTabContextWarning("");
+    setChartScreenshotWarning("");
+
     try {
-      setChartScreenshot(await captureVisibleChartScreenshot());
+      const storedMessages = await backendClient.getMessages(nextSessionId);
+      setSessionId(nextSessionId);
+      sessionIdRef.current = nextSessionId;
+      setMessages(fromBackendMessages(storedMessages));
+      await saveActiveSidepanelSessionId(nextSessionId);
+      setBackendStatus("connected");
     } catch (error) {
-      setChartScreenshot(null);
-      setChartScreenshotWarning(error instanceof Error ? error.message : "Could not attach visible chart screenshot.");
-    } finally {
-      setIsCapturingChartScreenshot(false);
+      setBackendStatus("unavailable");
+      setErrorMessage(toUiErrorMessage(error, settingsRef.current.baseUrl));
     }
   };
+
   const handleSend = async (event: FormEvent) => {
     event.preventDefault();
     const content = input.trim();
@@ -339,12 +341,20 @@ export default function App() {
     ]);
 
     try {
-      let outboundContent = content;
-      if (tabContextEnabled) {
-        const attachedContext = await refreshTabContext();
-        if (attachedContext) {
-          outboundContent = formatTabContextPrompt(content, attachedContext);
-        }
+      setIsCapturingTabContext(true);
+      setIsCapturingChartScreenshot(true);
+      const preparedMessage = await prepareOutboundMessage(content);
+      setTabContext(preparedMessage.tabContext);
+      setTabContextWarning(preparedMessage.tabContextWarning);
+      setChartScreenshotWarning(preparedMessage.chartScreenshotWarning);
+      try {
+        const nextState = await getCurrentTabPermissionState();
+        setTabPermissionState(nextState);
+      } catch (error) {
+        if (!preparedMessage.tabContextWarning) setTabContextWarning(toTabContextWarning(error));
+      } finally {
+        setIsCapturingTabContext(false);
+        setIsCapturingChartScreenshot(false);
       }
 
       let nextSessionId = sessionId;
@@ -353,17 +363,18 @@ export default function App() {
         nextSessionId = session.session_id;
         setSessionId(nextSessionId);
         sessionIdRef.current = nextSessionId;
+        setRecentSessions((current) => [
+          session,
+          ...current.filter((item) => item.session_id !== session.session_id),
+        ].slice(0, 8));
+        await saveActiveSidepanelSessionId(nextSessionId);
       }
       await connectSessionEvents(nextSessionId);
       await sendMessageWithChartScreenshot(
         nextSessionId,
-        outboundContent,
-        chartScreenshot,
+        preparedMessage.content,
+        preparedMessage.imageAttachments,
         backendClient.sendMessage,
-        () => {
-          setChartScreenshot(null);
-          setChartScreenshotWarning("");
-        },
       );
       setBackendStatus("connected");
     } catch (error) {
@@ -372,6 +383,8 @@ export default function App() {
       setStreamingText("");
       setIsStreaming(false);
       setIsSending(false);
+      setIsCapturingTabContext(false);
+      setIsCapturingChartScreenshot(false);
       setBackendStatus("unavailable");
       setErrorMessage(toUiErrorMessage(error, settingsRef.current.baseUrl));
     }
@@ -405,32 +418,63 @@ export default function App() {
 
   const canSend = input.trim().length > 0 && !isSending && !isStreaming && !isCancelling;
   const canCancel = Boolean(sessionId) && (isSending || isStreaming) && !isCancelling;
-  const tabContextSummary = tabContext ? tabContextLabel(tabContext) : "No tab attached";
-  const chartScreenshotSummary = chartScreenshot ? chartScreenshotLabel(chartScreenshot) : "No chart screenshot attached";
-  const localAccessStatus = tabPermissionState.enhancedHostAccess === false ? "Active tab fallback" : "Full local access active";
+  const sessionLabel = sessionId ? `Session ${sessionId.slice(0, 8)}` : "New chat";
+  const tabContextSummary = tabContext ? tabContextLabel(tabContext) : "Auto tab ready";
+  const chartVisionSummary = tabContext && isChartLikePage(tabContext) ? "Auto vision on" : "Auto vision when chart";
 
   return (
     <main className="sidebar-shell" aria-label="Vibe-Trading Sidebar">
-      <section className="hero-card" aria-labelledby="sidebar-title">
+      <header className="sidepanel-header">
         <div className="brand-row">
           <span className="brand-mark" aria-hidden="true">V</span>
-          <div>
+          <div className="brand-copy">
             <p className="eyebrow">Vibe-Trading</p>
-            <h1 id="sidebar-title">Research console</h1>
+            <h1 id="sidebar-title">Research chat</h1>
           </div>
         </div>
-        <p className="hero-copy">
-          Compact research chat for the local Vibe-Trading backend.
-        </p>
-      </section>
-
-      <section className="status-card" aria-labelledby="status-title">
-        <div className="section-heading">
-          <h2 id="status-title">Backend</h2>
+        <div className="header-actions">
           <span data-testid="backend-status" className={`status-pill status-pill--${backendStatus}`} role="status">
             {statusLabels[backendStatus]}
           </span>
+          <span className="session-pill">{sessionLabel}</span>
+          {recentSessions.length ? (
+            <select
+              className="session-select"
+              aria-label="Recent sessions"
+              value={sessionId ?? ""}
+              disabled={isSending || isStreaming}
+              onChange={(event) => void handleSessionSelect(event.target.value)}
+            >
+              <option value="">Recent sessions</option>
+              {recentSessions.map((session) => (
+                <option key={session.session_id} value={session.session_id}>
+                  {session.title || session.session_id}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <button type="button" className="secondary-button secondary-button--compact" onClick={() => void handleNewChat()}>
+            New chat
+          </button>
         </div>
+      </header>
+
+      <div className="auto-chip-row" aria-live="polite">
+        <span className={`auto-chip ${tabContext ? "auto-chip--active" : ""}`}>
+          <span className="status-dot status-dot--connected" aria-hidden="true" />
+          <span>{isCapturingTabContext ? "Auto tab reading" : tabContextSummary}</span>
+        </span>
+        <span className={`auto-chip ${tabContext && isChartLikePage(tabContext) ? "auto-chip--active" : ""}`}>
+          <span className={`status-dot ${isCapturingChartScreenshot ? "" : "status-dot--connected"}`} aria-hidden="true" />
+          <span>{isCapturingChartScreenshot ? "Auto vision checking" : chartVisionSummary}</span>
+        </span>
+      </div>
+
+      <details className="settings-details">
+        <summary>
+          <span>Backend settings</span>
+          <span>Provider keys stay backend-only</span>
+        </summary>
         <form className="settings-form" onSubmit={handleSettingsSubmit} aria-label="Backend connection settings">
           <label>
             <span>Backend URL</span>
@@ -452,7 +496,7 @@ export default function App() {
           </label>
           <button type="submit" className="secondary-button">Save</button>
         </form>
-      </section>
+      </details>
 
       <section className="conversation-card" aria-labelledby="chat-title">
         <div className="section-heading">
@@ -484,97 +528,12 @@ export default function App() {
           ) : null}
         </div>
       </section>
-
-      <section className="tab-context-card" aria-labelledby="tab-context-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Optional</p>
-            <h2 id="tab-context-title">Current tab context</h2>
-          </div>
-          <label className="toggle-control">
-            <input
-              type="checkbox"
-              checked={tabContextEnabled}
-              onChange={(event) => void handleTabContextToggle(event.target.checked)}
-              disabled={isSending || isStreaming || isCapturingTabContext}
-            />
-            <span>{tabContextEnabled ? "On" : "Off"}</span>
-          </label>
-        </div>
-        <p className="tab-context-copy">
-          Attach title, URL, selected text, and a short cleaned page excerpt to the next prompt.
-        </p>
-        <div className="permission-mode-panel" role="status" aria-live="polite">
-          <div className="permission-mode-heading">
-            <span>Local page access</span>
-            <span>{localAccessStatus}</span>
-          </div>
-          <p className="permission-mode-copy">
-            This unpacked local extension requests http/https host access in the manifest. It can read the active page text and capture the visible tab image after you accept Chrome's install-time permission prompt.
-          </p>
-          <p className="permission-mode-copy">
-            Automation remains future-only: no click, type, navigation, debugger, or webNavigation control is wired here.
-          </p>
-        </div>
-        <div className="tab-context-attachment" aria-live="polite">
-          <span className={`status-dot ${tabContext ? "status-dot--connected" : ""}`} aria-hidden="true" />
-          <span>{tabContextSummary}</span>
-        </div>
-        {tabContextWarning ? (
-          <p className="tab-context-warning" role="status">{tabContextWarning}</p>
-        ) : null}
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={!tabContextEnabled || isSending || isStreaming || isCapturingTabContext}
-          onClick={() => void refreshTabContext()}
-        >
-          {isCapturingTabContext ? "Refreshing" : "Refresh tab"}
-        </button>
-      </section>
-
-
-      <section className="tab-context-card" aria-labelledby="chart-vision-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Vision</p>
-            <h2 id="chart-vision-title">Visible chart screenshot</h2>
-          </div>
-        </div>
-        <p className="tab-context-copy">
-          Attach the visible tab image so the backend vision model can inspect candles, drawings, and indicators.
-          Screenshots may include balances, watchlists, or account details visible on the page.
-        </p>
-        <div className="tab-context-attachment" aria-live="polite">
-          <span className={`status-dot ${chartScreenshot ? "status-dot--connected" : ""}`} aria-hidden="true" />
-          <span>{chartScreenshotSummary}</span>
-        </div>
-        {chartScreenshotWarning ? (
-          <p className="tab-context-warning" role="status">{chartScreenshotWarning}</p>
-        ) : null}
-        <div className="action-row">
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={isSending || isStreaming || isCapturingChartScreenshot}
-            onClick={() => void handleCaptureChartScreenshot()}
-          >
-            {isCapturingChartScreenshot ? "Capturing" : "Attach visible chart"}
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={!chartScreenshot || isSending || isStreaming || isCapturingChartScreenshot}
-            onClick={() => {
-              setChartScreenshot(null);
-              setChartScreenshotWarning("");
-            }}
-          >
-            Clear chart
-          </button>
-        </div>
-      </section>
       <form className="composer" aria-label="Chat composer" onSubmit={handleSend}>
+        {tabContextWarning || chartScreenshotWarning ? (
+          <div className="compact-warning" role="status">
+            {tabContextWarning || chartScreenshotWarning}
+          </div>
+        ) : null}
         <label className="sr-only" htmlFor="chat-input">Message</label>
         <textarea
           id="chat-input"
