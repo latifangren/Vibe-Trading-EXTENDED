@@ -20,6 +20,8 @@ export {
   type TabPermissionState,
 } from "@/lib/tabContextShared";
 
+export { formatTabContextPromptWithinBudget } from "@/lib/promptBudget";
+
 export const ENHANCED_TAB_PERMISSION_ORIGINS: TabPermissionOriginPattern[] = ["http://*/*", "https://*/*"];
 
 export interface CapturedTabContext {
