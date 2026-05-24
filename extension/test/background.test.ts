@@ -47,6 +47,13 @@ function mockCaptureResult(title = "Captured report"): void {
         title,
         selectedText: "Selected",
         pageTextExcerpt: "Page body",
+        marketMetadata: {
+          symbol: "BTCUSD",
+          timeframe: "1h",
+          price: "$71,000",
+          source: "page",
+          capturedAt: "2026-05-25T00:00:00.000Z",
+        },
       },
     },
   ]);
@@ -103,6 +110,13 @@ describe("extension test harness", () => {
       url: "https://example.com/report",
       selectedText: "Selected",
       pageTextExcerpt: "Page body",
+      marketMetadata: {
+        symbol: "BTCUSD",
+        timeframe: "1h",
+        price: "$71,000",
+        source: "page",
+        capturedAt: "2026-05-25T00:00:00.000Z",
+      },
     });
     expect(chrome.permissions.contains).toHaveBeenCalledWith({ origins: ["https://*/*"] });
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith({

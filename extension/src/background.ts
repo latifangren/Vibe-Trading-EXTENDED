@@ -150,6 +150,7 @@ async function captureCurrentTab(): Promise<TabContext> {
     url,
     selectedText: result.selectedText,
     pageTextExcerpt: result.pageTextExcerpt,
+    marketMetadata: result.marketMetadata,
   };
 }
 

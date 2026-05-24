@@ -14,7 +14,12 @@ export function formatTabContextPromptWithinBudget(
 ): string {
   const nextContext = { ...context };
   let prompt = formatTabContextPrompt(question, nextContext);
-  const trimOrder: (keyof TabContext)[] = ["pageTextExcerpt", "selectedText", "url", "title"];
+  const trimOrder: Array<"pageTextExcerpt" | "selectedText" | "url" | "title"> = [
+    "pageTextExcerpt",
+    "selectedText",
+    "url",
+    "title",
+  ];
 
   for (const field of trimOrder) {
     if (prompt.length <= maxLength) return prompt;
