@@ -9,6 +9,13 @@ function tabContext(overrides: Partial<TabContext> = {}): TabContext {
     url: "https://www.tradingview.com/chart/BTCUSD",
     selectedText: "",
     pageTextExcerpt: "BTCUSD candlestick chart volume RSI MACD",
+    marketMetadata: {
+      symbol: "BTCUSD",
+      timeframe: "1h",
+      price: "$71,000",
+      source: "page",
+      capturedAt: "2026-05-25T00:00:00.000Z",
+    },
     ...overrides,
   };
 }
@@ -57,6 +64,7 @@ describe("automatic send preparation", () => {
       { data_url: "data:image/jpeg;base64,QUJD", mime_type: "image/jpeg", label: "visible chart screenshot" },
     ]);
     expect(prepared.content).toContain("User question:\nAnalyze this setup");
+    expect(prepared.content).toContain("Market metadata:");
   });
 
   it("does not capture screenshot on non-chart pages", async () => {
