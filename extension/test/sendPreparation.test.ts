@@ -83,6 +83,78 @@ describe("automatic send preparation", () => {
     expect(prepared.imageAttachments).toBeUndefined();
   });
 
+  it("captures screenshot on explicit visual request even on non-chart pages", async () => {
+    const captureChartScreenshot = vi.fn(async () => screenshot());
+
+    const prepared = await prepareOutboundMessage("Pakai text + screenshot untuk analisa", {
+      captureTabContext: async () => tabContext({
+        title: "Research article",
+        url: "https://example.com/article",
+        pageTextExcerpt: "Long-form macro commentary without trading interface.",
+      }),
+      captureChartScreenshot,
+    });
+
+    expect(captureChartScreenshot).toHaveBeenCalledTimes(1);
+    expect(prepared.imageAttachments).toEqual([
+      { data_url: "data:image/jpeg;base64,QUJD", mime_type: "image/jpeg", label: "visible chart screenshot" },
+    ]);
+  });
+
+  it("captures screenshot on explicit visual request even when tab capture fails", async () => {
+    const captureChartScreenshot = vi.fn(async () => screenshot());
+
+    const prepared = await prepareOutboundMessage("Please include a screenshot of the screen", {
+      captureTabContext: async () => {
+        throw new Error("tab blocked");
+      },
+      captureChartScreenshot,
+    });
+
+    expect(captureChartScreenshot).toHaveBeenCalledTimes(1);
+    expect(prepared.content).toBe("Please include a screenshot of the screen");
+    expect(prepared.tabContextWarning).toBe("Screenshot attached; tab text unavailable.");
+    expect(prepared.imageAttachments).toEqual([
+      { data_url: "data:image/jpeg;base64,QUJD", mime_type: "image/jpeg", label: "visible chart screenshot" },
+    ]);
+  });
+
+  it("captures screenshot for current tab prompt on non-chart page", async () => {
+    const captureChartScreenshot = vi.fn(async () => screenshot());
+
+    const prepared = await prepareOutboundMessage("Coba cek tab ini sekarang", {
+      captureTabContext: async () => tabContext({
+        title: "Research article",
+        url: "https://example.com/article",
+        pageTextExcerpt: "Long-form macro commentary without trading interface.",
+      }),
+      captureChartScreenshot,
+    });
+
+    expect(captureChartScreenshot).toHaveBeenCalledTimes(1);
+    expect(prepared.imageAttachments).toEqual([
+      { data_url: "data:image/jpeg;base64,QUJD", mime_type: "image/jpeg", label: "visible chart screenshot" },
+    ]);
+  });
+
+  it("captures screenshot for current page prompt even when tab capture fails and softens warning", async () => {
+    const captureChartScreenshot = vi.fn(async () => screenshot());
+
+    const prepared = await prepareOutboundMessage("Gimana kalo tab ini? Tau gak tab apa?", {
+      captureTabContext: async () => {
+        throw new Error("tab blocked");
+      },
+      captureChartScreenshot,
+    });
+
+    expect(captureChartScreenshot).toHaveBeenCalledTimes(1);
+    expect(prepared.content).toBe("Gimana kalo tab ini? Tau gak tab apa?");
+    expect(prepared.tabContextWarning).toBe("Screenshot attached; tab text unavailable.");
+    expect(prepared.imageAttachments).toEqual([
+      { data_url: "data:image/jpeg;base64,QUJD", mime_type: "image/jpeg", label: "visible chart screenshot" },
+    ]);
+  });
+
   it("keeps text send non-blocking when chart capture fails", async () => {
     const prepared = await prepareOutboundMessage("Analyze this setup", {
       captureTabContext: async () => tabContext(),
@@ -109,5 +181,21 @@ describe("automatic send preparation", () => {
     expect(prepared.content).toBe("Plain question");
     expect(prepared.tabContextWarning).toBe("Could not attach current tab context. Sending normal chat still works.");
     expect(captureChartScreenshot).not.toHaveBeenCalled();
+  });
+
+  it("keeps plain questions from forcing screenshot", async () => {
+    const captureChartScreenshot = vi.fn(async () => screenshot());
+
+    const prepared = await prepareOutboundMessage("Plain question", {
+      captureTabContext: async () => tabContext({
+        title: "Research article",
+        url: "https://example.com/article",
+        pageTextExcerpt: "Long-form macro commentary without trading interface.",
+      }),
+      captureChartScreenshot,
+    });
+
+    expect(captureChartScreenshot).not.toHaveBeenCalled();
+    expect(prepared.imageAttachments).toBeUndefined();
   });
 });

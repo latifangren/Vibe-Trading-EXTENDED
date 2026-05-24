@@ -25,6 +25,30 @@ export interface PrepareOutboundMessageOptions {
   captureChartScreenshot?: () => Promise<ChartScreenshot>;
 }
 
+function shouldCaptureScreenshot(question: string): boolean {
+  const normalizedQuestion = question.toLowerCase();
+  return (
+    normalizedQuestion.includes("screenshot")
+    || normalizedQuestion.includes("visual")
+    || normalizedQuestion.includes("image")
+    || normalizedQuestion.includes("gambar")
+    || normalizedQuestion.includes("tangkapan layar")
+    || normalizedQuestion.includes("pakai text + screenshot")
+    || normalizedQuestion.includes("tab ini")
+    || normalizedQuestion.includes("tab apa")
+    || normalizedQuestion.includes("cek tab")
+    || normalizedQuestion.includes("lihat tab")
+    || normalizedQuestion.includes("current tab")
+    || normalizedQuestion.includes("active tab")
+    || normalizedQuestion.includes("this tab")
+    || normalizedQuestion.includes("halaman ini")
+    || normalizedQuestion.includes("page ini")
+    || normalizedQuestion.includes("web ini")
+    || normalizedQuestion.includes("website ini")
+    || normalizedQuestion.includes("cek halaman")
+  );
+}
+
 export async function prepareOutboundMessage(
   question: string,
   options: PrepareOutboundMessageOptions = {},
@@ -45,7 +69,7 @@ export async function prepareOutboundMessage(
   let chartScreenshot: ChartScreenshot | null = null;
   let chartScreenshotWarning = "";
 
-  if (tabContext && isChartLikePage(tabContext)) {
+  if ((tabContext && isChartLikePage(tabContext)) || shouldCaptureScreenshot(question)) {
     try {
       chartScreenshot = await captureChart();
     } catch (error) {
@@ -53,6 +77,10 @@ export async function prepareOutboundMessage(
         ? error.message
         : "Could not attach visible chart screenshot.";
     }
+  }
+
+  if (chartScreenshot && tabContextWarning) {
+    tabContextWarning = "Screenshot attached; tab text unavailable.";
   }
 
   const imageAttachments = chartScreenshot
