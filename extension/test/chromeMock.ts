@@ -21,6 +21,10 @@ export function createChromeMock(overrides: ChromeMockOverrides = {}) {
     void values;
     callback?.();
   });
+  const storageRemove = vi.fn((keys: string | string[], callback?: () => void) => {
+    void keys;
+    callback?.();
+  });
   const sidePanelSetPanelBehavior = vi.fn(async () => undefined);
 
   const chromeMock = {
@@ -49,6 +53,7 @@ export function createChromeMock(overrides: ChromeMockOverrides = {}) {
       local: {
         get: storageGet,
         set: storageSet,
+        remove: storageRemove,
       },
     },
     sidePanel: {
