@@ -20,6 +20,7 @@ except ImportError:
 
 
 if ChatOpenAI is not None:
+
     class ChatOpenAIWithReasoning(ChatOpenAI):  # type: ignore[misc,valid-type]
         """ChatOpenAI that preserves provider reasoning across invoke + stream.
 
@@ -51,9 +52,7 @@ if ChatOpenAI is not None:
             default_chunk_class: type,
             base_generation_info: Optional[dict],
         ):
-            gen = super()._convert_chunk_to_generation_chunk(
-                chunk, default_chunk_class, base_generation_info
-            )
+            gen = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
             if gen is None:
                 return None
             choices = chunk.get("choices") or chunk.get("chunk", {}).get("choices")
@@ -89,10 +88,10 @@ else:
 
 AGENT_DIR = Path(__file__).resolve().parents[2]
 
-# .env search order: ~/.vibe-trading/.env → agent/.env → $CWD/.env
+# .env search order: agent/.env → ~/.vibe-trading/.env → $CWD/.env
 _ENV_CANDIDATES = [
-    Path.home() / ".vibe-trading" / ".env",
     AGENT_DIR / ".env",
+    Path.home() / ".vibe-trading" / ".env",
     Path.cwd() / ".env",
 ]
 
@@ -100,7 +99,7 @@ _ENV_CANDIDATES = [
 # .env path (it leaks the OS username / home / CWD). The label names
 # which slot won - the entire P08 R1 signal - using compile-time
 # constants only.
-_ENV_LABELS = ("~/.vibe-trading/.env", "<AGENT_DIR>/.env", "<CWD>/.env")
+_ENV_LABELS = ("<AGENT_DIR>/.env", "~/.vibe-trading/.env", "<CWD>/.env")
 
 logger = logging.getLogger(__name__)
 
@@ -219,19 +218,19 @@ def _sync_provider_env() -> None:
 
     # (api_key_env, base_url_env)
     _PROVIDER_MAP: dict[str, tuple[str | None, str]] = {
-        "openai":     ("OPENAI_API_KEY",     "OPENAI_BASE_URL"),
-        "openrouter": ("OPENROUTER_API_KEY",  "OPENROUTER_BASE_URL"),
-        "deepseek":   ("DEEPSEEK_API_KEY",    "DEEPSEEK_BASE_URL"),
-        "gemini":     ("GEMINI_API_KEY",      "GEMINI_BASE_URL"),
-        "groq":       ("GROQ_API_KEY",        "GROQ_BASE_URL"),
-        "dashscope":  ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
-        "qwen":       ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
-        "zhipu":      ("ZHIPU_API_KEY",       "ZHIPU_BASE_URL"),
-        "moonshot":   ("MOONSHOT_API_KEY",    "MOONSHOT_BASE_URL"),
-        "minimax":    ("MINIMAX_API_KEY",     "MINIMAX_BASE_URL"),
-        "mimo":       ("MIMO_API_KEY",        "MIMO_BASE_URL"),
-        "zai":        ("ZAI_API_KEY",         "ZAI_BASE_URL"),
-        "ollama":     (None,                  "OLLAMA_BASE_URL"),
+        "openai": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+        "openrouter": ("OPENROUTER_API_KEY", "OPENROUTER_BASE_URL"),
+        "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"),
+        "gemini": ("GEMINI_API_KEY", "GEMINI_BASE_URL"),
+        "groq": ("GROQ_API_KEY", "GROQ_BASE_URL"),
+        "dashscope": ("DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL"),
+        "qwen": ("DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL"),
+        "zhipu": ("ZHIPU_API_KEY", "ZHIPU_BASE_URL"),
+        "moonshot": ("MOONSHOT_API_KEY", "MOONSHOT_BASE_URL"),
+        "minimax": ("MINIMAX_API_KEY", "MINIMAX_BASE_URL"),
+        "mimo": ("MIMO_API_KEY", "MIMO_BASE_URL"),
+        "zai": ("ZAI_API_KEY", "ZAI_BASE_URL"),
+        "ollama": (None, "OLLAMA_BASE_URL"),
     }
 
     spec = _PROVIDER_MAP.get(provider, _PROVIDER_MAP["openai"])
@@ -252,7 +251,7 @@ def _sync_provider_env() -> None:
         os.environ["OPENAI_API_KEY"] = api_key
     if base_url:
         os.environ["OPENAI_API_BASE"] = base_url
-        os.environ.setdefault("OPENAI_BASE_URL", base_url)
+        os.environ["OPENAI_BASE_URL"] = base_url
 
 
 def build_llm(*, model_name: Optional[str] = None, callbacks: Any = None) -> Any:
@@ -302,4 +301,3 @@ def build_llm(*, model_name: Optional[str] = None, callbacks: Any = None) -> Any
         callbacks=callbacks,
         extra_body={"reasoning": {"effort": effort}} if effort else None,
     )
-

@@ -63,6 +63,12 @@ def test_redact_env_source_maps_real_candidates():
     assert str(unknown) not in llm._redact_env_source(unknown)
 
 
+def test_project_agent_env_precedes_home_env() -> None:
+    labels = list(llm._ENV_LABELS)
+
+    assert labels.index("<AGENT_DIR>/.env") < labels.index("~/.vibe-trading/.env")
+
+
 def test_logs_none_when_no_env_found(tmp_path, fresh, monkeypatch, caplog):
     monkeypatch.setattr(llm, "_ENV_CANDIDATES", [tmp_path / "does-not-exist.env"])
     with caplog.at_level(logging.INFO, logger=LOGGER):
@@ -81,6 +87,19 @@ def test_logs_redacted_base_url_without_credentials(tmp_path, fresh, monkeypatch
     assert "sk-secret" not in msg
     assert "sk-hidden" not in msg
     assert "api_key" not in msg
+
+
+def test_sync_provider_env_overwrites_stale_openai_base(monkeypatch) -> None:
+    monkeypatch.setattr(llm, "_dotenv_loaded", True)
+    monkeypatch.setenv("LANGCHAIN_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-local")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://192.168.100.40:20128/v1")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+
+    llm._sync_provider_env()
+
+    assert llm.os.environ["OPENAI_API_BASE"] == "http://192.168.100.40:20128/v1"
+    assert llm.os.environ["OPENAI_BASE_URL"] == "http://192.168.100.40:20128/v1"
 
 
 def test_latch_still_skips_second_call(tmp_path, fresh, monkeypatch, caplog):
