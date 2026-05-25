@@ -1,3 +1,8 @@
+from .approval import (
+    APPROVAL_STATUSES,
+    ApprovalEvent,
+    ApprovalState,
+)
 from .decision import (
     ADVISORY_ACTIONS,
     ADVISORY_RISK_LEVELS,
@@ -21,7 +26,10 @@ from .redaction import redact_advisory_payload, redact_advisory_text
 __all__ = [
     "ADVISORY_ACTIONS",
     "ADVISORY_RISK_LEVELS",
+    "APPROVAL_STATUSES",
     "AdvisoryDecision",
+    "ApprovalEvent",
+    "ApprovalState",
     "EVIDENCE_TYPES",
     "EvidenceEntry",
     "MARKET_DATA_FRESHNESS_LEVELS",
