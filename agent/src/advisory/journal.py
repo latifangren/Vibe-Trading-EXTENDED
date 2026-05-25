@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 from .approval import ApprovalState
 from .decision import AdvisoryDecision
@@ -113,3 +114,22 @@ class DecisionJournal:
             "entries": [entry.to_dict() for entry in self._entries],
             "stats": self.stats().to_dict(),
         }
+
+    @classmethod
+    def from_dict(cls, data: object) -> "DecisionJournal":
+        if not isinstance(data, dict):
+            raise ValueError("decision journal payload must be a mapping")
+        payload = cast(dict[str, object], data)
+        raw_entries = payload.get("entries")
+        if not isinstance(raw_entries, list):
+            raise ValueError("journal.entries must be a list")
+
+        journal = cls()
+        for item in cast(list[object], raw_entries):
+            if not isinstance(item, dict):
+                raise ValueError("journal entries must be mappings")
+            entry = cast(dict[str, object], item)
+            decision = AdvisoryDecision.from_dict(entry.get("decision"))
+            approval = ApprovalState.from_dict(entry.get("approval"))
+            _ = journal.append(decision, approval=approval)
+        return journal
