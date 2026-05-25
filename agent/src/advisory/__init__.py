@@ -14,6 +14,11 @@ from .evidence import (
     build_evidence,
     validate_evidence,
 )
+from .journal import (
+    DecisionJournal,
+    JournalEntry,
+    JournalStats,
+)
 from .market_data_confidence import (
     MARKET_DATA_FRESHNESS_LEVELS,
     MarketDataConfidence,
@@ -30,8 +35,11 @@ __all__ = [
     "AdvisoryDecision",
     "ApprovalEvent",
     "ApprovalState",
+    "DecisionJournal",
     "EVIDENCE_TYPES",
     "EvidenceEntry",
+    "JournalEntry",
+    "JournalStats",
     "MARKET_DATA_FRESHNESS_LEVELS",
     "MarketDataConfidence",
     "SignalQualityScore",
