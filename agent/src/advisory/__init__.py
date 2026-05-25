@@ -27,12 +27,14 @@ from .market_data_confidence import (
 )
 from .quality import SignalQualityScore, score_advisory_decision, score_advisory_payload
 from .redaction import redact_advisory_payload, redact_advisory_text
+from .store import AdvisoryJournalStore
 
 __all__ = [
     "ADVISORY_ACTIONS",
     "ADVISORY_RISK_LEVELS",
     "APPROVAL_STATUSES",
     "AdvisoryDecision",
+    "AdvisoryJournalStore",
     "ApprovalEvent",
     "ApprovalState",
     "DecisionJournal",
