@@ -38,6 +38,8 @@ def test_advisory_tools_are_auto_discovered() -> None:
         "create_advisory_decision",
         "approve_advisory_decision",
         "reject_advisory_decision",
+        "approve_persisted_advisory_decision",
+        "reject_persisted_advisory_decision",
         "query_advisory_journal",
     ):
         assert expected in registry.tool_names, f"{expected} missing from registry"
