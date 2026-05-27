@@ -109,6 +109,16 @@ class DecisionJournal:
     def filter_by_status(self, status: str) -> tuple[JournalEntry, ...]:
         return tuple(e for e in self._entries if e.approval.status == status)
 
+    def replace_approval(self, decision_id: str, approval: ApprovalState) -> JournalEntry:
+        if decision_id != approval.decision_id:
+            raise ValueError("approval decision_id must match decision_id")
+        for index, entry in enumerate(self._entries):
+            if entry.decision.decision_id == decision_id:
+                updated = JournalEntry(decision=entry.decision, quality=entry.quality, approval=approval)
+                self._entries[index] = updated
+                return updated
+        raise KeyError(f"decision not found: {decision_id}")
+
     def to_dict(self) -> dict[str, object]:
         return {
             "entries": [entry.to_dict() for entry in self._entries],

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from src.advisory import (
     AdvisoryDecision,
     ApprovalState,
@@ -10,6 +12,24 @@ from src.advisory import (
     EvidenceEntry,
     summarize_market_data_confidence,
 )
+
+
+def _assert_value_error(expected: str, callback: Callable[[], object]) -> None:
+    try:
+        _ = callback()
+    except ValueError as exc:
+        assert expected in str(exc)
+        return
+    raise AssertionError("expected ValueError")
+
+
+def _assert_key_error(expected: str, callback: Callable[[], object]) -> None:
+    try:
+        _ = callback()
+    except KeyError as exc:
+        assert expected in str(exc)
+        return
+    raise AssertionError("expected KeyError")
 
 
 def _make_decision(
@@ -70,10 +90,7 @@ def test_append_rejects_mismatched_approval_decision_id() -> None:
     decision = _make_decision("dec_j_003")
     wrong_approval = ApprovalState.for_decision("dec_j_other")
 
-    import pytest
-
-    with pytest.raises(ValueError, match="must match"):
-        journal.append(decision, approval=wrong_approval)
+    _assert_value_error("must match", lambda: journal.append(decision, approval=wrong_approval))
 
 
 def test_stats_computes_aggregates() -> None:
@@ -121,6 +138,49 @@ def test_filter_by_status() -> None:
 
     assert len(approved) == 1
     assert len(pending) == 1
+
+
+def test_replace_approval_updates_pending_to_approved() -> None:
+    journal = DecisionJournal()
+    _ = journal.append(_make_decision("dec_j_050"))
+    approval = ApprovalState.for_decision("dec_j_050").approve(reason="confirmed", actor="pm")
+
+    updated = journal.replace_approval("dec_j_050", approval)
+
+    assert updated.approval.status == "approved"
+    assert journal.entries[0].approval.status == "approved"
+    assert journal.stats().by_approval_status == {"approved": 1}
+
+
+def test_replace_approval_updates_pending_to_rejected() -> None:
+    journal = DecisionJournal()
+    _ = journal.append(_make_decision("dec_j_051"))
+    approval = ApprovalState.for_decision("dec_j_051").reject(reason="risk too high", actor="risk")
+
+    updated = journal.replace_approval("dec_j_051", approval)
+
+    assert updated.approval.status == "rejected"
+    assert journal.filter_by_status("rejected")[0].decision.decision_id == "dec_j_051"
+
+
+def test_replace_approval_rejects_missing_decision_id() -> None:
+    journal = DecisionJournal()
+    _ = journal.append(_make_decision("dec_j_052"))
+
+    _assert_key_error(
+        "decision not found: dec_j_missing",
+        lambda: journal.replace_approval("dec_j_missing", ApprovalState.for_decision("dec_j_missing")),
+    )
+
+
+def test_replace_approval_rejects_mismatched_approval() -> None:
+    journal = DecisionJournal()
+    _ = journal.append(_make_decision("dec_j_053"))
+
+    _assert_value_error(
+        "approval decision_id must match decision_id",
+        lambda: journal.replace_approval("dec_j_053", ApprovalState.for_decision("dec_j_other")),
+    )
 
 
 def test_to_dict_includes_entries_and_stats() -> None:
