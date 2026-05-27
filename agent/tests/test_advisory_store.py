@@ -82,6 +82,58 @@ def test_append_persists_entries_between_store_instances(tmp_path: Path) -> None
     assert loaded.stats().by_action == {"buy": 1, "sell": 1}
 
 
+def test_approve_persists_updated_approval(tmp_path: Path) -> None:
+    path = tmp_path / "journal.json"
+    store = AdvisoryJournalStore(path)
+    _ = store.append(_make_decision("dec_store_approval_001"))
+
+    updated = store.approve("dec_store_approval_001", reason="setup confirmed", actor="pm")
+    loaded = AdvisoryJournalStore(path).load()
+
+    assert updated.approval.status == "approved"
+    assert loaded.entries[0].approval.status == "approved"
+    assert loaded.entries[0].approval.audit_trail[0].reason == "setup confirmed"
+    assert loaded.stats().by_approval_status == {"approved": 1}
+
+
+def test_reject_persists_updated_approval(tmp_path: Path) -> None:
+    path = tmp_path / "journal.json"
+    store = AdvisoryJournalStore(path)
+    _ = store.append(_make_decision("dec_store_approval_002"))
+
+    updated = store.reject("dec_store_approval_002", reason="risk too high", actor="risk")
+    loaded = AdvisoryJournalStore(path).load()
+
+    assert updated.approval.status == "rejected"
+    assert loaded.entries[0].approval.status == "rejected"
+    assert loaded.entries[0].approval.audit_trail[0].actor == "risk"
+
+
+def test_approval_transition_rejects_unknown_decision(tmp_path: Path) -> None:
+    path = tmp_path / "journal.json"
+    store = AdvisoryJournalStore(path)
+    _ = store.append(_make_decision("dec_store_approval_003"))
+
+    try:
+        _ = store.approve("dec_store_missing", reason="ok", actor="pm")
+    except KeyError as exc:
+        assert "decision not found: dec_store_missing" in str(exc)
+        return
+    raise AssertionError("expected KeyError")
+
+
+def test_approval_transition_rejects_terminal_state(tmp_path: Path) -> None:
+    path = tmp_path / "journal.json"
+    store = AdvisoryJournalStore(path)
+    _ = store.append(_make_decision("dec_store_approval_004"))
+    _ = store.approve("dec_store_approval_004", reason="ok", actor="pm")
+
+    _assert_value_error(
+        "cannot transition from 'approved' to 'rejected'",
+        lambda: store.reject("dec_store_approval_004", reason="changed", actor="risk"),
+    )
+
+
 def test_load_recomputes_derived_stats_instead_of_trusting_serialized_stats(tmp_path: Path) -> None:
     path = tmp_path / "journal.json"
     journal = DecisionJournal()

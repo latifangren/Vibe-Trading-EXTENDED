@@ -36,3 +36,24 @@ class AdvisoryJournalStore:
         entry = journal.append(decision, approval=approval)
         self.save(journal)
         return entry
+
+    def approve(self, decision_id: str, *, reason: str, actor: str) -> JournalEntry:
+        journal = self.load()
+        current = self._find_approval(journal, decision_id)
+        updated = journal.replace_approval(decision_id, current.approve(reason=reason, actor=actor))
+        self.save(journal)
+        return updated
+
+    def reject(self, decision_id: str, *, reason: str, actor: str) -> JournalEntry:
+        journal = self.load()
+        current = self._find_approval(journal, decision_id)
+        updated = journal.replace_approval(decision_id, current.reject(reason=reason, actor=actor))
+        self.save(journal)
+        return updated
+
+    @staticmethod
+    def _find_approval(journal: DecisionJournal, decision_id: str) -> ApprovalState:
+        for entry in journal.entries:
+            if entry.decision.decision_id == decision_id:
+                return entry.approval
+        raise KeyError(f"decision not found: {decision_id}")
